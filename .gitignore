@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# MATLAB
+*.asv
+*.m~
+*.autosave
+slprj/
+sccprj/
+
+# Python (in case any scripts get added)
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
