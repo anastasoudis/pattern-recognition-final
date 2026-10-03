@@ -1,104 +1,65 @@
-# Pattern Recognition — Final Project
+# Pattern Recognition, final project
 
-Two-part final project from the **Pattern Recognition** course at Democritus University of Thrace (Fall 2023 / early 2024).
+Final project of the Pattern Recognition course at the Democritus University of Thrace (Fall 2023 / early 2024). It has two parts, an image classifier with anomaly detection and a binary classifier for drug discovery.
 
-The project combines a computer-vision classification task with anomaly detection (Part 1) and a high-dimensional drug-discovery / cheminformatics task (Part 2). The headline result:
-
-> **AUC 0.9509** on the drug-discovery binary classifier — predicting whether a chemical molecule binds to a target biological receptor across 3,473 mixed-type features.
-
-## At a glance
-
-| Part | Task | Approach | Result |
+| Part | Task | Method | Result |
 |---|---|---|---|
-| 1 — [Face-Mask Classifier with Anomaly Detection](part1-mask-classifier/) | Binary image classification on faces (with-mask vs without-mask) plus identification of an unseen "incorrect-use" class that is never shown during training | CNN built in Keras; hyperparameters tuned with **Keras-Tuner**; anomaly-detection head that flags unseen classes using a calibrated **threshold-score of 0.0005** on the softmax output | Solid validation accuracy; the anomaly head correctly flagged a significant share of the held-out "mask-incorrect-use" images as out-of-distribution |
-| 2 — [Drug-Discovery Binary Classifier](part2-drug-discovery/) | Predict whether a chemical molecule binds to a target biological receptor — a screening problem used in early-stage pharmacology to surface candidate active substances before wet-lab work | **PCA** for dimensionality reduction on the mixed continuous + binary feature space, followed by a **CNN** classifier that outputs binding probability per molecule | **AUC 0.9509** on the held-out evaluation; calibrated prediction scores delivered as `test_predictions.csv` per the assignment specification |
+| 1 | Faces with and without a mask, and detection of a class never seen in training (mask worn incorrectly) | CNN in Keras tuned with Keras Tuner (Hyperband), and a separate dense network that gives the anomaly score | 97.13% test accuracy. 91.07% of the 56 incorrect-use images flagged as anomalies |
+| 2 | Whether a molecule binds to a target receptor | Standardized continuous features, PCA, and a 1D CNN tuned with Keras Tuner (RandomSearch) | AUC 0.9509 and 90.58% accuracy on the validation split |
 
-The 8-page report ([`report/Report_Final_Project.pdf`](report/Report_Final_Project.pdf)) and 7.5 MB slide deck ([`report/slides.pptx`](report/slides.pptx)) cover both parts end-to-end — methodology, code walk-through, results, and figures.
+The report (`report/Report_Final_Project.pdf`) and the slides (`report/slides.pptx`) are in Greek.
 
-## Part 1 — Face-Mask Classifier with Anomaly Detection
+## Part 1, face masks
 
-The training set was [`Mask_DB.zip`](https://drive.google.com/) (provided with the assignment): 1,044 `with_mask` images, 1,044 `without_mask` images, plus 56 `mask_incorrect_use` images held out as the **unseen class**.
+The data (`Mask_DB.zip`, provided with the assignment) has 1,044 images with a mask, 1,044 without and 56 with the mask worn incorrectly. The third class is kept out of training.
 
-**Pipeline:**
+1. The two main classes are split 60/20/20 into training, validation and test sets.
+2. A CNN with three convolutional layers is tuned with Keras Tuner (Hyperband over the number of filters and the size of the dense layer), with early stopping on the validation loss (patience 3).
+3. The best model reaches 97.13% accuracy on the test set.
+4. For the unseen class, a second, fully connected network with a sigmoid output is trained on the two main classes. An incorrect-use image counts as an anomaly when its score is above 0.0005. With this threshold 91.07% of the 56 images are flagged and the other 8.93% are taken for "with mask". As the report notes, such a low threshold can also raise the false positives.
 
-1. **Data split** — 60 / 20 / 20 train / validation / test, stratified across `with_mask` and `without_mask` only.
-2. **Model selection** — chose CNN over classical (SVM, Random Forest) because the task is image classification with non-trivial spatial structure. Trade-off acknowledged: more compute and overfitting risk, mitigated by tuning + validation monitoring.
-3. **Hyperparameter search** — Keras-Tuner sweep over filter counts, dense-layer widths, and dropout rates, with an `EarlyStopping` callback (`patience = 3`).
-4. **Held-out evaluation** — final accuracy, AUC, and precision-recall curves on the test set.
-5. **Anomaly detection** — feed the unseen `mask_incorrect_use` images through the trained model. The CNN produces low-confidence softmax outputs on these. A threshold-score of **0.0005** on the maximum softmax probability flags a sample as "neither with_mask nor without_mask". This is the cleanest of the four mitigation strategies considered (data augmentation, cost-sensitive loss, transfer learning, anomaly detection).
+The report also discusses data augmentation, class-dependent costs and transfer learning, and why anomaly detection was chosen instead.
 
-Code: [`part1-mask-classifier/notebook.ipynb`](part1-mask-classifier/notebook.ipynb).
+Code: [`part1-mask-classifier/notebook.ipynb`](part1-mask-classifier/notebook.ipynb)
 
-## Part 2 — Drug-Discovery Binary Classifier
+## Part 2, drug discovery
 
-**Problem framing:** virtual screening — given features of a chemical molecule, predict whether it binds effectively to a target biological receptor (label 1) or not (label 0).
+The data (`Data_Receptors.zip`, provided with the assignment) describes each molecule with 3,473 features, 1,425 continuous descriptors followed by 2,048 binary ones. The label says whether the molecule binds to the receptor.
 
-**Dataset (provided as `Data_Receptors.zip`):**
+1. The continuous features are standardized and joined again with the binary ones.
+2. PCA keeps the components that explain 95% of the variance.
+3. The training molecules are split 80/20. A 1D CNN (one to three convolutional layers, a dense layer and dropout) is tuned with Keras Tuner (RandomSearch, 15 trials) on the 80%, with the 20% as validation.
+4. On the 20% the best model reaches 90.58% accuracy and AUC 0.9509.
+5. The model then predicts the test molecules. [`test_predictions.csv`](part2-drug-discovery/test_predictions.csv) has the predicted label and the score for each one.
 
-| Field | Value |
-|---|---|
-| Training molecules (`Train_features.csv` + `Train_labels.csv`) | 1,115 |
-| Test molecules (`test_features.csv`) | 124 |
-| Features per molecule | **3,473** |
-| Continuous physicochemical descriptors (columns 1 – 1,425) | 1,425 |
-| Binary molecular fingerprints (columns 1,426 – 3,473) | 2,048 |
-
-**Pipeline:**
-
-1. **Preprocessing** — separate continuous and binary blocks; scale the continuous block (centring + variance normalisation); leave the binary fingerprints untouched.
-2. **Dimensionality reduction** — **PCA** on the scaled continuous block to suppress the curse of dimensionality and decorrelate inputs before the CNN.
-3. **Classifier** — CNN that consumes the PCA-projected continuous features alongside the raw binary fingerprints; binary cross-entropy loss; the network outputs `p(binding | features) ∈ [0, 1]`.
-4. **Optimisation protocol** — k-fold cross-validation on the training set to choose model hyperparameters; held-out estimate of test-set error reported.
-5. **Result** — **AUC 0.9509** on the cross-validated evaluation.
-6. **Output** — `test_predictions.csv` with one `predicted_label, prediction_score` row per test molecule, in the order of `test_features.csv`. The `prediction_score` is the raw classifier output (binding probability).
-
-Code: [`part2-drug-discovery/notebook.ipynb`](part2-drug-discovery/notebook.ipynb).
-Predictions file: [`part2-drug-discovery/test_predictions.csv`](part2-drug-discovery/test_predictions.csv) — 123 rows.
+Code: [`part2-drug-discovery/notebook.ipynb`](part2-drug-discovery/notebook.ipynb)
 
 ## Repository structure
 
 ```
 .
 ├── report/
-│   ├── Report_Final_Project.pdf       # 8-page report covering both parts (Greek)
-│   └── slides.pptx                    # Presentation slides (Greek)
+│   ├── Report_Final_Project.pdf
+│   └── slides.pptx
 ├── part1-mask-classifier/
-│   └── notebook.ipynb                 # CNN + anomaly head on Mask_DB
+│   └── notebook.ipynb
 └── part2-drug-discovery/
-    ├── notebook.ipynb                 # PCA + CNN on Data_Receptors
-    └── test_predictions.csv           # Deliverable: 123 rows of predicted_label,prediction_score
+    ├── notebook.ipynb
+    └── test_predictions.csv
 ```
-
-The report is in Greek and embeds the original problem statement for each part, so the assignment context is preserved without needing a separate brief. The slides are in Greek; the README and notebook prose are mixed Greek / English.
 
 ## Running the code
 
-Python 3.10+ recommended.
+The notebooks were run on Google Colab and read `Mask_DB.zip` and `Data_Receptors.zip` from `/content`. The datasets were provided with the course and are not included here.
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install jupyter numpy pandas matplotlib scikit-learn tensorflow keras-tuner
-jupyter notebook
+pip install jupyter numpy pandas matplotlib scikit-learn opencv-python tensorflow keras-tuner
 ```
-
-**Datasets are not redistributed in this repository.** Both notebooks were originally run on Google Colab against the assignment-provided archives:
-
-- `Mask_DB.zip` — uploaded into the Colab `content/` folder before running Part 1.
-- `Data_Receptors.zip` — uploaded into the Colab `content/` folder before running Part 2; it contains `Train_features.csv`, `Train_labels.csv`, and `test_features.csv`.
-
-Equivalent datasets:
-
-- Face-mask classification: the [`andrewmvd/face-mask-detection`](https://www.kaggle.com/datasets/andrewmvd/face-mask-detection) dataset on Kaggle is a close substitute for the assignment's `Mask_DB`.
-- Molecular binding: the assignment's `Data_Receptors` was a curated subset for the course; comparable public benchmarks include the **MoleculeNet** suite (`BACE`, `HIV`).
-
-## Course
-
-Pattern Recognition (Αναγνώριση Προτύπων) — Department of Electrical & Computer Engineering, Democritus University of Thrace. Fall 2023 / early 2024.
 
 ## License
 
-[MIT](LICENSE) — shared as-is for educational reference.
+MIT, see [LICENSE](LICENSE).
 
 ## Author
 
-[Dimitrios Anastasoudis](https://github.com/anastasoudis) · [LinkedIn](https://linkedin.com/in/anastasoudis)
+[Dimitrios Anastasoudis](https://github.com/anastasoudis), [LinkedIn](https://linkedin.com/in/anastasoudis)
